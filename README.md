@@ -17,10 +17,11 @@ client (GM and players alike) needs the fix.
 ## What this module does
 
 1. **Keepalive ping.** From every connected client, every ~4 minutes, performs
-   `fetch('/api/status', { credentials: 'include', cache: 'no-store', redirect: 'manual' })`.
+   `fetch('/api/status', { credentials: 'same-origin', cache: 'no-store', redirect: 'manual' })`.
    A successful 200 touches the upstream session cookie and keeps it alive.
-2. **Failure detection.** Treats network/CORS errors, non-2xx status, or
-   `response.type === 'opaqueredirect'` (the IdP 302) as session expiry.
+2. **Failure detection.** Treats fetch errors (network failure, blocked
+   redirect), any non-2xx status, or `response.type === 'opaqueredirect'`
+   (the IdP 302 surfaced by `redirect: 'manual'`) as session expiry.
 3. **Surface the failure.** On expiry, shows a permanent
    `ui.notifications.error` and a modal `Dialog` with a re-auth button that
    opens the configured URL in a new tab.
@@ -30,28 +31,74 @@ client (GM and players alike) needs the fix.
 5. **Polish.** Listens for `error` events on `<audio>`/`<video>`/`<img>`
    elements to probe the session immediately when an asset fails to load.
 
+## Requirements
+
+- **Foundry VTT** v12 or v13.
+- **A forward-auth proxy that refreshes the IdP cookie on each authenticated
+  request.** Authentik's embedded outpost does this by default (sliding
+  session) — the keepalive ping only works because every successful pass
+  through the proxy resets the cookie's lifetime. If your proxy is
+  configured for fixed-lifetime sessions, this module will fail to extend
+  them and you'll see the dialog instead.
+- **Same-origin keepalive endpoint.** The module only sends credentials
+  to the same origin as the Foundry tab. A cross-origin URL in the
+  endpoint setting is silently dropped back to the default.
+
+## Install
+
+1. In the Foundry **Setup** screen, open *Add-on Modules → Install Module*.
+2. Paste this manifest URL into *Manifest URL* and click **Install**:
+
+   ```text
+   https://github.com/Jan-Ka/foundryvtt-auth-keepalive/releases/latest/download/module.json
+   ```
+
+3. Launch your world, open *Game Settings → Manage Modules*, tick
+   **Auth Keepalive**, click *Save Module Settings*, and let the world
+   reload. Every connected client (GM and players) now runs the keepalive
+   automatically — there's nothing to install per-player.
+
 ## Settings
 
 All exposed in the in-app **Configure Settings** UI.
 
-| Setting                 | Scope  | Default       | Notes                                                                                                                                        |
-| ----------------------- | ------ | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Keepalive interval (ms) | client | `240000`      | Values below `30000` are ignored. Changes take effect immediately.                                                                           |
-| Keepalive endpoint      | world  | `/api/status` | Path or URL the ping hits. Use a same-origin path so the session cookie is sent.                                                             |
-| Re-authentication URL   | world  | *(empty)*     | Empty falls back to `/outpost.goauthentik.io/start?rd=<current-url>` — right default for an Authentik embedded outpost on the same hostname. |
-| First probe delay (ms)  | client | `5000`        | Delay after `ready` before the first probe runs.                                                                                             |
-| Show recovery toast     | client | `true`        | Info toast when a previously-expired session is restored.                                                                                    |
-| Probe on media errors   | client | `true`        | Probe immediately when an `<audio>`/`<video>`/`<img>` fails to load.                                                                         |
+| Setting                 | Scope  | Default       | Notes                                                                                                                                                                                                                          |
+| ----------------------- | ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Keepalive interval (ms) | client | `240000`      | Values below `30000` are ignored. Changes take effect immediately.                                                                                                                                                             |
+| Keepalive endpoint      | world  | `/api/status` | Path the ping hits. Same-origin only — absolute URLs to a different origin are silently rejected and fall back to the default. Endpoint must return a 2xx for an authenticated session.                                        |
+| Re-authentication URL   | world  | *(empty)*     | URL the dialog opens. Empty falls back to `/outpost.goauthentik.io/start?rd=<current-url>` (right default for an Authentik embedded outpost on the same hostname). Only `http(s)://` and path-relative URLs accepted; anything else (e.g. `javascript:`) falls back to the default. |
+| First probe delay (ms)  | client | `5000`        | Delay after `ready` before the first probe runs.                                                                                                                                                                               |
+| Show recovery toast     | client | `true`        | Info toast when a previously-expired session is restored.                                                                                                                                                                      |
+| Probe on media errors   | client | `true`        | Probe immediately when an `<audio>`/`<video>`/`<img>` fails to load.                                                                                                                                                            |
 
-## Install
+## Verify it's working
 
-Install at the **world** level so it loads automatically for every connected
-client. Use the manifest URL from the
-[latest release](https://github.com/Jan-Ka/foundryvtt-auth-keepalive/releases/latest):
+1. Open the browser devtools console (`F12`). On world load you should see
+   one log line per tab:
 
-```text
-https://github.com/Jan-Ka/foundryvtt-auth-keepalive/releases/latest/download/module.json
-```
+   ```text
+   [foundryvtt-auth-keepalive] ready, starting keepalive for <user-name>
+   ```
+
+2. The module exposes a small debug API on the global scope. From the
+   console:
+
+   ```js
+   // Force an immediate probe — useful right after a config change.
+   globalThis['foundryvtt-auth-keepalive'].tick();
+
+   // Inspect current state (interval id, expired flag, in-flight promise).
+   globalThis['foundryvtt-auth-keepalive'].state;
+
+   // Stop and restart the timer (e.g. after editing the interval setting).
+   globalThis['foundryvtt-auth-keepalive'].restart();
+   ```
+
+3. To rehearse the failure flow without waiting for a real expiry, point the
+   *Keepalive endpoint* setting at a path you know returns a non-2xx (e.g.
+   `/api/does-not-exist`) and run `tick()`. The dialog and toast should
+   appear within one tick. Restore the setting and run `tick()` again to
+   confirm recovery.
 
 ## Develop
 
