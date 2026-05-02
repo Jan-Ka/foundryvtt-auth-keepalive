@@ -1,0 +1,31 @@
+{
+  "id": "foundryvtt-auth-keepalive",
+  "title": "Auth Keepalive",
+  "description": "Keeps Foundry VTT sessions alive behind an SSO reverse proxy (Authentik forward-auth via Traefik) and surfaces a clear re-auth prompt when they expire.",
+  "version": "0.1.0",
+  "compatibility": {
+    "minimum": "12",
+    "verified": "13",
+    "maximum": "13"
+  },
+  "authors": [
+    {
+      "name": "Jan-Ka",
+      "url": "https://github.com/Jan-Ka"
+    }
+  ],
+  "esmodules": [
+    "module/auth-keepalive.js"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "url": "https://github.com/Jan-Ka/foundryvtt-auth-keepalive",
+  "manifest": "https://github.com/Jan-Ka/foundryvtt-auth-keepalive/releases/latest/download/module.json",
+  "download": "https://github.com/Jan-Ka/foundryvtt-auth-keepalive/releases/latest/download/foundryvtt-auth-keepalive.zip",
+  "license": "https://github.com/Jan-Ka/foundryvtt-auth-keepalive/blob/main/LICENSE"
+}

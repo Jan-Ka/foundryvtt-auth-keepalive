@@ -1,0 +1,305 @@
+/**
+ * foundryvtt-auth-keepalive
+ *
+ * Pings a Foundry endpoint on an interval so the upstream Authentik
+ * forward-auth proxy keeps the session cookie warm. If the cookie ever
+ * expires (the proxy answers with a cross-origin redirect to the IdP, or
+ * the network call fails), surfaces a persistent notification + dialog
+ * pointing the user at a re-auth URL. Recovers automatically once the
+ * next ping succeeds.
+ */
+
+import {
+    buildReauthUrl,
+    classifyResponse,
+    isMediaErrorTarget,
+    parseNumberSetting,
+    resolvePingPath,
+} from './internal.js';
+
+const MODULE_ID = 'foundryvtt-auth-keepalive';
+
+const DEFAULTS = {
+    pingPath: '/api/status',
+    intervalMs: 240_000,
+    minIntervalMs: 30_000,
+    firstProbeDelayMs: 5_000,
+    dialogWidth: 480,
+    showRecoveryToast: true,
+    detectMediaErrors: true,
+} as const;
+
+declare const Hooks: any;
+declare const game: any;
+declare const ui: any;
+declare const Dialog: any;
+
+interface KeepaliveState {
+    intervalId: number | null;
+    expired: boolean;
+    notification: unknown;
+    dialog: any;
+    lastFailureAt: number | null;
+    mediaListener: ((event: Event) => void) | null;
+}
+
+const state: KeepaliveState = {
+    intervalId: null,
+    expired: false,
+    notification: null,
+    dialog: null,
+    lastFailureAt: null,
+    mediaListener: null,
+};
+
+function log(...args: unknown[]): void {
+    console.log(`[${MODULE_ID}]`, ...args);
+}
+
+function userTag(): string {
+    return game?.user?.name ?? game?.userId ?? 'unknown';
+}
+
+function getSetting<T>(key: string, fallback: T): T {
+    try {
+        const value = game?.settings?.get?.(MODULE_ID, key);
+        return (value === undefined || value === null) ? fallback : (value as T);
+    } catch {
+        return fallback;
+    }
+}
+
+function getNumberSetting(key: string, fallback: number, min: number): number {
+    return parseNumberSetting(getSetting<unknown>(key, fallback), fallback, min);
+}
+
+function getPingPath(): string {
+    return resolvePingPath(getSetting<string>('pingPath', DEFAULTS.pingPath), DEFAULTS.pingPath);
+}
+
+function getIntervalMs(): number {
+    return getNumberSetting('interval', DEFAULTS.intervalMs, DEFAULTS.minIntervalMs);
+}
+
+function getFirstProbeDelayMs(): number {
+    return getNumberSetting('firstProbeDelay', DEFAULTS.firstProbeDelayMs, 0);
+}
+
+function reauthUrl(): string {
+    return buildReauthUrl(getSetting<string>('reauthUrl', ''), window.location.href);
+}
+
+async function ping(): Promise<boolean> {
+    try {
+        const res = await fetch(getPingPath(), {
+            credentials: 'include',
+            cache: 'no-store',
+            redirect: 'manual',
+            headers: { Accept: 'application/json' },
+        });
+        return classifyResponse(res) === 'ok';
+    } catch (err) {
+        log('keepalive fetch failed', err);
+        return false;
+    }
+}
+
+function showExpiryUi(): void {
+    state.lastFailureAt = Date.now();
+    if (state.expired) return;
+    state.expired = true;
+    log('session expired for', userTag());
+
+    const message = game.i18n.localize(`${MODULE_ID}.notification.expired`);
+    state.notification = ui.notifications.error(message, { permanent: true });
+
+    const url = reauthUrl();
+    const title = game.i18n.localize(`${MODULE_ID}.dialog.title`);
+    const body = game.i18n.localize(`${MODULE_ID}.dialog.body`);
+    const buttonLabel = game.i18n.localize(`${MODULE_ID}.dialog.button`);
+
+    state.dialog = new Dialog(
+        {
+            title,
+            content: `<p>${body}</p>`,
+            buttons: {
+                reauth: {
+                    label: buttonLabel,
+                    callback: () => {
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                        // Returning false keeps the dialog open until recovery
+                        // dismisses it on the next successful ping.
+                        return false;
+                    },
+                },
+            },
+            default: 'reauth',
+            close: () => {
+                state.dialog = null;
+            },
+        },
+        { width: DEFAULTS.dialogWidth },
+    );
+    state.dialog.render(true);
+}
+
+function clearExpiryUi(): void {
+    if (!state.expired) return;
+    state.expired = false;
+    log('session recovered for', userTag());
+
+    const note = state.notification as { remove?: () => void } | number | null;
+    try {
+        if (typeof note === 'number') {
+            ui.notifications?.remove?.(note);
+        } else if (note && typeof note === 'object' && typeof note.remove === 'function') {
+            note.remove();
+        }
+    } catch (err) {
+        log('failed to remove notification', err);
+    }
+    state.notification = null;
+
+    try {
+        state.dialog?.close?.({ force: true });
+    } catch (err) {
+        log('failed to close dialog', err);
+    }
+    state.dialog = null;
+
+    if (getSetting<boolean>('showRecoveryToast', DEFAULTS.showRecoveryToast)) {
+        ui.notifications?.info?.(game.i18n.localize(`${MODULE_ID}.notification.recovered`));
+    }
+}
+
+async function tick(): Promise<void> {
+    const ok = await ping();
+    if (ok) clearExpiryUi();
+    else showExpiryUi();
+}
+
+function start(): void {
+    if (state.intervalId !== null) return;
+    state.intervalId = window.setInterval(() => {
+        void tick();
+    }, getIntervalMs());
+    window.setTimeout(() => {
+        void tick();
+    }, getFirstProbeDelayMs());
+}
+
+function stop(): void {
+    if (state.intervalId !== null) {
+        window.clearInterval(state.intervalId);
+        state.intervalId = null;
+    }
+}
+
+function restart(): void {
+    stop();
+    start();
+}
+
+/**
+ * When an <audio>/<img>/<video> element fails to load, probe the session
+ * immediately. Media error events don't bubble, so we use a capture-phase
+ * listener on window. If the asset failed because the cookie is gone, the
+ * probe surfaces the UI.
+ */
+function attachMediaErrorListener(): void {
+    if (state.mediaListener) return;
+    if (!getSetting<boolean>('detectMediaErrors', DEFAULTS.detectMediaErrors)) return;
+    const listener = (event: Event): void => {
+        if (!isMediaErrorTarget(event.target)) return;
+        log('media error detected, probing session', (event.target as HTMLElement).tagName);
+        void tick();
+    };
+    window.addEventListener('error', listener, true);
+    state.mediaListener = listener;
+}
+
+function detachMediaErrorListener(): void {
+    if (!state.mediaListener) return;
+    window.removeEventListener('error', state.mediaListener, true);
+    state.mediaListener = null;
+}
+
+Hooks.once('init', () => {
+    const onSettingChange = () => {
+        if (state.intervalId !== null) restart();
+    };
+
+    game.settings.register(MODULE_ID, 'interval', {
+        name: `${MODULE_ID}.settings.interval.name`,
+        hint: `${MODULE_ID}.settings.interval.hint`,
+        scope: 'client',
+        config: true,
+        type: Number,
+        default: DEFAULTS.intervalMs,
+        onChange: onSettingChange,
+    });
+
+    game.settings.register(MODULE_ID, 'pingPath', {
+        name: `${MODULE_ID}.settings.pingPath.name`,
+        hint: `${MODULE_ID}.settings.pingPath.hint`,
+        scope: 'world',
+        config: true,
+        type: String,
+        default: DEFAULTS.pingPath,
+    });
+
+    game.settings.register(MODULE_ID, 'reauthUrl', {
+        name: `${MODULE_ID}.settings.reauthUrl.name`,
+        hint: `${MODULE_ID}.settings.reauthUrl.hint`,
+        scope: 'world',
+        config: true,
+        type: String,
+        default: '',
+    });
+
+    game.settings.register(MODULE_ID, 'firstProbeDelay', {
+        name: `${MODULE_ID}.settings.firstProbeDelay.name`,
+        hint: `${MODULE_ID}.settings.firstProbeDelay.hint`,
+        scope: 'client',
+        config: true,
+        type: Number,
+        default: DEFAULTS.firstProbeDelayMs,
+    });
+
+    game.settings.register(MODULE_ID, 'showRecoveryToast', {
+        name: `${MODULE_ID}.settings.showRecoveryToast.name`,
+        hint: `${MODULE_ID}.settings.showRecoveryToast.hint`,
+        scope: 'client',
+        config: true,
+        type: Boolean,
+        default: DEFAULTS.showRecoveryToast,
+    });
+
+    game.settings.register(MODULE_ID, 'detectMediaErrors', {
+        name: `${MODULE_ID}.settings.detectMediaErrors.name`,
+        hint: `${MODULE_ID}.settings.detectMediaErrors.hint`,
+        scope: 'client',
+        config: true,
+        type: Boolean,
+        default: DEFAULTS.detectMediaErrors,
+        onChange: (enabled: boolean) => {
+            if (enabled) attachMediaErrorListener();
+            else detachMediaErrorListener();
+        },
+    });
+});
+
+Hooks.once('ready', () => {
+    log('ready, starting keepalive for', userTag());
+    start();
+    attachMediaErrorListener();
+    window.addEventListener('beforeunload', stop);
+    // Expose for manual debugging from the Foundry console.
+    (globalThis as unknown as Record<string, unknown>)[MODULE_ID] = {
+        tick,
+        start,
+        stop,
+        restart,
+        state,
+    };
+});
