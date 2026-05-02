@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "rc-[0-9]+.[0-9]+.[0-9]+"
+      - "alpha-[0-9]+.[0-9]+.[0-9]+"
+      - "beta-[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e # v6
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Compute release metadata
+        id: meta
+        run: |
+          set -eu
+          TAG="${GITHUB_REF#refs/tags/}"
+          case "$TAG" in
+            v*)  VERSION="${TAG#v}" ;;
+            *-*) VERSION="${TAG#*-}" ;;
+          esac
+          REL="https://github.com/${GITHUB_REPOSITORY}/releases"
+          MANIFEST="${REL}/latest/download/module.json"
+          DOWNLOAD="${REL}/download/${TAG}/foundryvtt-auth-keepalive.zip"
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "manifest=$MANIFEST"
+            echo "download=$DOWNLOAD"
+            if [ "${TAG#v}" != "$TAG" ]; then
+              echo "prerelease=false"
+            else
+              echo "prerelease=true"
+            fi
+          } >> "$GITHUB_OUTPUT"
+          sed -i "s|\"version\":.*|\"version\": \"${VERSION}\",|" src/module.json
+          sed -i "s|\"manifest\":.*|\"manifest\": \"${MANIFEST}\",|" src/module.json
+          sed -i "s|\"download\":.*|\"download\": \"${DOWNLOAD}\",|" src/module.json
+
+      - run: pnpm run build
+
+      - name: Package zip
+        run: |
+          set -eu
+          mkdir -p build/artifacts
+          cp -r src build/foundryvtt-auth-keepalive
+          (cd build && zip -r artifacts/foundryvtt-auth-keepalive.zip foundryvtt-auth-keepalive/)
+          (cd build/artifacts && sha256sum foundryvtt-auth-keepalive.zip > foundryvtt-auth-keepalive.zip.sha256)
+          cp src/module.json build/artifacts/module.json
+
+      - name: Generate CycloneDX SBOM
+        run: >
+          pnpm exec cdxgen
+          --type pnpm
+          --no-recurse
+          --spec-version 1.6
+          --output build/artifacts/sbom.cdx.json
+          .
+
+      - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - name: Sign artifacts (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -eu
+          cd build/artifacts
+          cosign sign-blob --bundle foundryvtt-auth-keepalive.zip.bundle  foundryvtt-auth-keepalive.zip
+          cosign sign-blob --bundle sbom.cdx.json.bundle                  sbom.cdx.json
+          cosign sign-blob --bundle module.json.bundle                    module.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            build/artifacts/foundryvtt-auth-keepalive.zip
+            build/artifacts/foundryvtt-auth-keepalive.zip.sha256
+            build/artifacts/foundryvtt-auth-keepalive.zip.bundle
+            build/artifacts/sbom.cdx.json
+            build/artifacts/sbom.cdx.json.bundle
+            build/artifacts/module.json
+            build/artifacts/module.json.bundle

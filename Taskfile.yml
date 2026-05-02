@@ -1,0 +1,146 @@
+version: "3"
+
+vars:
+  MODULE_ID: foundryvtt-auth-keepalive
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  check:prereqs:
+    desc: Verify required development tools are installed
+    silent: true
+    cmds:
+      - |
+        MISSING=0
+        check() {
+          if command -v "$1" >/dev/null 2>&1; then
+            echo "✓ $1 $(eval "$2")"
+          else
+            echo "✗ $1 is not installed ($3)"
+            MISSING=1
+          fi
+        }
+        check node "node --version" "brew install node"
+        check pnpm "pnpm --version" "brew install pnpm"
+        [ "$MISSING" -ne 0 ] && echo "" && echo "Install missing tools and re-run." && exit 1
+        echo "" && echo "All prerequisites satisfied."
+
+  setup:
+    desc: Bootstrap project from a fresh clone
+    cmds:
+      - task: check:prereqs
+      - pnpm install
+      - task: build
+
+  build:
+    desc: Bundle the ES module entry script
+    cmds:
+      - pnpm run build
+
+  watch:
+    desc: Rebuild on change
+    cmds:
+      - pnpm run watch
+
+  lint:
+    desc: Run ESLint
+    cmds:
+      - pnpm run lint
+
+  typecheck:
+    desc: Run TypeScript in noEmit mode
+    cmds:
+      - pnpm run typecheck
+
+  check:
+    desc: Lint + typecheck + build (mirrors CI)
+    cmds:
+      - pnpm run check
+
+  package:
+    desc: Build and package a release zip into build/artifacts/
+    cmds:
+      - task: build
+      - rm -rf build/{{.MODULE_ID}} build/artifacts
+      - mkdir -p build/artifacts
+      - cp -r src build/{{.MODULE_ID}}
+      - (cd build && zip -r artifacts/{{.MODULE_ID}}.zip {{.MODULE_ID}}/)
+      - (cd build/artifacts && shasum -a 256 {{.MODULE_ID}}.zip > {{.MODULE_ID}}.zip.sha256)
+      - cp src/module.json build/artifacts/module.json
+      - echo "Wrote build/artifacts/{{.MODULE_ID}}.zip"
+
+  clean:
+    desc: Remove generated files
+    cmds:
+      - pnpm run clean
+
+  # ── Release ──────────────────────────────────────────────────────
+  #
+  # Workflow:
+  #   1. Bump the version in package.json and src/module.json on main.
+  #   2. Commit and push.
+  #   3. Run `task release:patch` (or :minor / :major). Preconditions verify
+  #      the tree is clean, on main, up-to-date with origin, and the
+  #      versions match the bump being tagged. Then it tags and pushes —
+  #      the release.yml workflow takes it from there.
+
+  release:patch:
+    desc: Tag a patch release (v0.1.0 → v0.1.1)
+    cmds:
+      - task: release
+        vars:
+          BUMP: patch
+
+  release:minor:
+    desc: Tag a minor release (v0.1.0 → v0.2.0)
+    cmds:
+      - task: release
+        vars:
+          BUMP: minor
+
+  release:major:
+    desc: Tag a major release (v0.1.0 → v1.0.0)
+    cmds:
+      - task: release
+        vars:
+          BUMP: major
+
+  release:
+    internal: true
+    vars:
+      LATEST_TAG:
+        sh: git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo "v0.0.0"
+      MAJOR:
+        sh: echo "{{.LATEST_TAG}}" | sed 's/^v//' | cut -d. -f1
+      MINOR:
+        sh: echo "{{.LATEST_TAG}}" | sed 's/^v//' | cut -d. -f2
+      PATCH:
+        sh: echo "{{.LATEST_TAG}}" | sed 's/^v//' | cut -d. -f3
+      NEXT_TAG:
+        sh: |
+          case "{{.BUMP}}" in
+            major) echo "v$(({{.MAJOR}}+1)).0.0" ;;
+            minor) echo "v{{.MAJOR}}.$(({{.MINOR}}+1)).0" ;;
+            patch) echo "v{{.MAJOR}}.{{.MINOR}}.$(({{.PATCH}}+1))" ;;
+          esac
+      NEXT_VERSION:
+        sh: echo "{{.NEXT_TAG}}" | sed 's/^v//'
+    preconditions:
+      - sh: test "$(git branch --show-current)" = "main"
+        msg: "Must be on main branch to release"
+      - sh: test -z "$(git status --porcelain)"
+        msg: "Working directory must be clean"
+      - sh: git diff --quiet HEAD origin/main
+        msg: "Local main must be up to date with origin"
+      - sh: "grep -q '\"version\": \"{{.NEXT_VERSION}}\"' src/module.json"
+        msg: 'src/module.json version must be "{{.NEXT_VERSION}}" before tagging'
+      - sh: "grep -q '\"version\": \"{{.NEXT_VERSION}}\"' package.json"
+        msg: 'package.json version must be "{{.NEXT_VERSION}}" before tagging'
+    cmds:
+      - echo "{{.LATEST_TAG}} → {{.NEXT_TAG}}"
+      - git tag "{{.NEXT_TAG}}"
+      - git push origin "{{.NEXT_TAG}}"
+      - echo "Tagged and pushed {{.NEXT_TAG}}"
