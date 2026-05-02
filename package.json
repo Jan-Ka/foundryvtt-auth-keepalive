@@ -1,0 +1,51 @@
+{
+    "name": "foundryvtt-auth-keepalive",
+    "version": "0.1.0",
+    "type": "module",
+    "private": true,
+    "description": "Foundry VTT module that keeps SSO sessions alive behind an Authentik forward-auth proxy and surfaces a clear re-auth prompt when they expire.",
+    "scripts": {
+        "prepare": "husky",
+        "build": "esbuild src/module/auth-keepalive.ts --bundle --format=esm --outfile=src/module/auth-keepalive.js --sourcemap",
+        "watch": "esbuild src/module/auth-keepalive.ts --bundle --format=esm --outfile=src/module/auth-keepalive.js --sourcemap --watch",
+        "lint": "eslint src/",
+        "lint:fix": "eslint src/ --fix",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
+        "clean": "rm -rf build dist coverage src/module/auth-keepalive.js src/module/auth-keepalive.js.map"
+    },
+    "author": "Jan Ka",
+    "license": "MIT",
+    "homepage": "https://github.com/Jan-Ka/foundryvtt-auth-keepalive",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Jan-Ka/foundryvtt-auth-keepalive.git"
+    },
+    "bugs": {
+        "url": "https://github.com/Jan-Ka/foundryvtt-auth-keepalive/issues"
+    },
+    "packageManager": "pnpm@10.33.2",
+    "engines": {
+        "node": ">=24.15.0"
+    },
+    "devDependencies": {
+        "@commitlint/cli": "^20.5.3",
+        "@commitlint/config-conventional": "^20.5.3",
+        "@cyclonedx/cdxgen": "^12.3.1",
+        "@eslint/js": "^10.0.1",
+        "esbuild": "^0.28.0",
+        "eslint": "^10.3.0",
+        "husky": "^9.1.7",
+        "lint-staged": "^16.4.0",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.59.1",
+        "vitest": "^4.1.5"
+    },
+    "lint-staged": {
+        "src/**/*.ts": [
+            "eslint --fix"
+        ]
+    }
+}

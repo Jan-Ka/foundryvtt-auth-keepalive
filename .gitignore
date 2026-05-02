@@ -1,0 +1,45 @@
+# Node
+node_modules/
+npm-debug.log
+package-lock.json
+yarn.lock
+
+# Build output
+build/
+dist/
+src/module/auth-keepalive.js
+src/module/auth-keepalive.js.map
+
+# pnpm cache (CI cache target)
+.pnpm-store/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Foundry locks
+*.lock
+
+# Secrets
+.env
+.env.1password
+
+# ESLint config (generated)
+.eslintrc
+.eslintrc.js
+
+# Vitest coverage output
+coverage/
+
+# AI coding tool workspace files (local only, never commit)
+.claude/
+CLAUDE.md
+.cursor/
+.aider*
+.continue/
+.windsurf/
+.codeium/
+.github/copilot-instructions.md

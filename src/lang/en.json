@@ -1,0 +1,19 @@
+{
+    "foundryvtt-auth-keepalive.notification.expired": "Your login session expired. Click the dialog to re-authenticate, then return to this tab — Foundry will keep running.",
+    "foundryvtt-auth-keepalive.notification.recovered": "Login session restored. Keepalive resumed.",
+    "foundryvtt-auth-keepalive.dialog.title": "Login session expired",
+    "foundryvtt-auth-keepalive.dialog.body": "Your single sign-on session expired while this tab was open. Click the button below to re-authenticate in a new tab, then return here — Foundry will keep running and this dialog will close automatically once the session is restored.",
+    "foundryvtt-auth-keepalive.dialog.button": "Re-authenticate",
+    "foundryvtt-auth-keepalive.settings.interval.name": "Keepalive interval (ms)",
+    "foundryvtt-auth-keepalive.settings.interval.hint": "How often to ping the keepalive endpoint to keep the SSO session cookie warm. Default 240000 (4 minutes). Values below 30000 are ignored.",
+    "foundryvtt-auth-keepalive.settings.pingPath.name": "Keepalive endpoint",
+    "foundryvtt-auth-keepalive.settings.pingPath.hint": "Path or URL the keepalive ping hits. Default /api/status. Use a same-origin path so the session cookie is sent.",
+    "foundryvtt-auth-keepalive.settings.reauthUrl.name": "Re-authentication URL",
+    "foundryvtt-auth-keepalive.settings.reauthUrl.hint": "URL the dialog opens when the session expires. Leave empty to use the Authentik outpost start endpoint with the current page as the return URL.",
+    "foundryvtt-auth-keepalive.settings.firstProbeDelay.name": "First probe delay (ms)",
+    "foundryvtt-auth-keepalive.settings.firstProbeDelay.hint": "Delay after the world is ready before the first keepalive probe runs. Default 5000.",
+    "foundryvtt-auth-keepalive.settings.showRecoveryToast.name": "Show recovery toast",
+    "foundryvtt-auth-keepalive.settings.showRecoveryToast.hint": "Show an informational toast when a previously-expired session is restored.",
+    "foundryvtt-auth-keepalive.settings.detectMediaErrors.name": "Probe on media errors",
+    "foundryvtt-auth-keepalive.settings.detectMediaErrors.hint": "When an <audio>, <video>, or <img> element fails to load, probe the session immediately instead of waiting for the next interval."
+}
