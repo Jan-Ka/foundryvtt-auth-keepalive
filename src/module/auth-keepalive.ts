@@ -36,20 +36,24 @@ declare const Dialog: any;
 
 interface KeepaliveState {
     intervalId: number | null;
+    firstProbeTimeoutId: number | null;
     expired: boolean;
     notification: unknown;
     dialog: any;
     lastFailureAt: number | null;
     mediaListener: ((event: Event) => void) | null;
+    inflight: Promise<void> | null;
 }
 
 const state: KeepaliveState = {
     intervalId: null,
+    firstProbeTimeoutId: null,
     expired: false,
     notification: null,
     dialog: null,
     lastFailureAt: null,
     mediaListener: null,
+    inflight: null,
 };
 
 function log(...args: unknown[]): void {
@@ -74,7 +78,11 @@ function getNumberSetting(key: string, fallback: number, min: number): number {
 }
 
 function getPingPath(): string {
-    return resolvePingPath(getSetting<string>('pingPath', DEFAULTS.pingPath), DEFAULTS.pingPath);
+    return resolvePingPath(
+        getSetting<string>('pingPath', DEFAULTS.pingPath),
+        DEFAULTS.pingPath,
+        window.location.origin,
+    );
 }
 
 function getIntervalMs(): number {
@@ -92,7 +100,10 @@ function reauthUrl(): string {
 async function ping(): Promise<boolean> {
     try {
         const res = await fetch(getPingPath(), {
-            credentials: 'include',
+            // The cookie we're refreshing is on the Foundry origin. Same-origin
+            // is the safe default; resolvePingPath() already rejects cross-
+            // origin endpoints, so this is also the only valid mode.
+            credentials: 'same-origin',
             cache: 'no-store',
             redirect: 'manual',
             headers: { Accept: 'application/json' },
@@ -173,9 +184,22 @@ function clearExpiryUi(): void {
 }
 
 async function tick(): Promise<void> {
-    const ok = await ping();
-    if (ok) clearExpiryUi();
-    else showExpiryUi();
+    // Coalesce overlapping triggers (interval + first-probe timeout +
+    // media-error listener can all fire close together). Without this,
+    // a slow expired-response could land *after* a faster ok-response
+    // and incorrectly re-show the dialog.
+    if (state.inflight) return state.inflight;
+    const run = (async () => {
+        try {
+            const ok = await ping();
+            if (ok) clearExpiryUi();
+            else showExpiryUi();
+        } finally {
+            state.inflight = null;
+        }
+    })();
+    state.inflight = run;
+    return run;
 }
 
 function start(): void {
@@ -183,7 +207,8 @@ function start(): void {
     state.intervalId = window.setInterval(() => {
         void tick();
     }, getIntervalMs());
-    window.setTimeout(() => {
+    state.firstProbeTimeoutId = window.setTimeout(() => {
+        state.firstProbeTimeoutId = null;
         void tick();
     }, getFirstProbeDelayMs());
 }
@@ -192,6 +217,10 @@ function stop(): void {
     if (state.intervalId !== null) {
         window.clearInterval(state.intervalId);
         state.intervalId = null;
+    }
+    if (state.firstProbeTimeoutId !== null) {
+        window.clearTimeout(state.firstProbeTimeoutId);
+        state.firstProbeTimeoutId = null;
     }
 }
 
