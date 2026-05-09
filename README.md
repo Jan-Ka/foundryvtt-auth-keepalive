@@ -33,7 +33,7 @@ client (GM and players alike) needs the fix.
 
 ## Requirements
 
-- **Foundry VTT** v12 or v13.
+- **Foundry VTT** v14.
 - **A forward-auth proxy that refreshes the IdP cookie on each authenticated
   request.** Authentik's embedded outpost does this by default (sliding
   session) — the keepalive ping only works because every successful pass
