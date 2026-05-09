@@ -18,6 +18,12 @@
             "groupName": "devDependencies (non-major)"
         },
         {
+            "description": "Group all non-major dependencies into one PR",
+            "matchDepTypes": ["dependencies"],
+            "matchUpdateTypes": ["minor", "patch"],
+            "groupName": "dependencies (non-major)"
+        },
+        {
             "description": "Major bumps land in separate PRs so they get reviewed properly",
             "matchUpdateTypes": ["major"],
             "groupName": null
