@@ -29,14 +29,14 @@ const DEFAULTS = {
     detectMediaErrors: true,
 } as const;
 
-// Foundry runtime globals. No first-party types ship with Foundry, and
-// the community @league-of-foundry-developers types would be a heavy
+// Foundry v14 runtime globals. No first-party types ship with Foundry,
+// and the community @league-of-foundry-developers types would be a heavy
 // dependency for a tiny module — keep these as `any` and live with it.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare const Hooks: any;
 declare const game: any;
 declare const ui: any;
-declare const Dialog: any;
+declare const foundry: any;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 interface KeepaliveState {
@@ -136,29 +136,34 @@ function showExpiryUi(): void {
     const body = game.i18n.localize(`${MODULE_ID}.dialog.body`);
     const buttonLabel = game.i18n.localize(`${MODULE_ID}.dialog.button`);
 
-    state.dialog = new Dialog(
-        {
-            title,
-            content: `<p>${body}</p>`,
-            buttons: {
-                reauth: {
-                    label: buttonLabel,
-                    callback: () => {
-                        window.open(url, '_blank', 'noopener,noreferrer');
-                        // Returning false keeps the dialog open until recovery
-                        // dismisses it on the next successful ping.
-                        return false;
-                    },
+    const dialog = new foundry.applications.api.DialogV2({
+        window: { title },
+        position: { width: DEFAULTS.dialogWidth },
+        content: `<p>${body}</p>`,
+        // DialogV2 closes the dialog after a button activation. The
+        // permanent error notification remains as the persistent
+        // indicator until clearExpiryUi() removes it on recovery.
+        buttons: [
+            {
+                action: 'reauth',
+                label: buttonLabel,
+                default: true,
+                callback: () => {
+                    window.open(url, '_blank', 'noopener,noreferrer');
                 },
             },
-            default: 'reauth',
-            close: () => {
-                state.dialog = null;
-            },
-        },
-        { width: DEFAULTS.dialogWidth },
-    );
-    state.dialog.render(true);
+        ],
+        // Don't reject the promise if the user dismisses without clicking.
+        rejectClose: false,
+    });
+    state.dialog = dialog;
+    // Clear the reference when the dialog closes by any path — button
+    // activation, X dismissal, ESC. Without this, manual dismissal
+    // would leave a stale reference until the next recovery.
+    Hooks.once('closeDialogV2', (app: unknown) => {
+        if (app === dialog) state.dialog = null;
+    });
+    void dialog.render({ force: true });
 }
 
 function clearExpiryUi(): void {
@@ -166,23 +171,12 @@ function clearExpiryUi(): void {
     state.expired = false;
     log('session recovered for', userTag());
 
-    const note = state.notification as { remove?: () => void } | number | null;
-    try {
-        if (typeof note === 'number') {
-            ui.notifications?.remove?.(note);
-        } else if (note && typeof note === 'object' && typeof note.remove === 'function') {
-            note.remove();
-        }
-    } catch (err) {
-        log('failed to remove notification', err);
+    if (state.notification !== null) {
+        ui.notifications?.remove?.(state.notification);
+        state.notification = null;
     }
-    state.notification = null;
 
-    try {
-        state.dialog?.close?.({ force: true });
-    } catch (err) {
-        log('failed to close dialog', err);
-    }
+    void state.dialog?.close?.();
     state.dialog = null;
 
     if (getSetting<boolean>('showRecoveryToast', DEFAULTS.showRecoveryToast)) {
@@ -339,3 +333,29 @@ Hooks.once('ready', () => {
         state,
     };
 });
+
+// Test-only surface. Foundry doesn't import this module — it loads the
+// bundled .js via module.json — so these named exports have no runtime
+// cost in production.
+export {
+    attachMediaErrorListener,
+    clearExpiryUi,
+    detachMediaErrorListener,
+    restart,
+    showExpiryUi,
+    start,
+    state,
+    stop,
+    tick,
+};
+
+export function __resetStateForTests(): void {
+    state.intervalId = null;
+    state.firstProbeTimeoutId = null;
+    state.expired = false;
+    state.notification = null;
+    state.dialog = null;
+    state.lastFailureAt = null;
+    state.mediaListener = null;
+    state.inflight = null;
+}
