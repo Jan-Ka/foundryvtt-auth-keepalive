@@ -73,12 +73,12 @@ globalThis.fetch = fetchMock as unknown as typeof fetch;
 // Dynamic import — must happen AFTER globals are wired up. Top-level
 // `await import(...)` would also work but pulling it inside beforeAll
 // keeps the dependency on globals explicit.
-import type * as AuthKeepalive from './auth-keepalive.ts';
+import type * as AuthKeepalive from './auth-keepalive.js';
 
 let mod: typeof AuthKeepalive;
 
 beforeEach(async () => {
-    if (!mod) mod = await import('./auth-keepalive.ts');
+    if (!mod) mod = await import('./auth-keepalive.js');
     mod.__resetStateForTests();
     mockUi.notifications.error.mockClear();
     mockUi.notifications.info.mockClear();
@@ -86,6 +86,7 @@ beforeEach(async () => {
     mockGame.settingsStore.clear();
     fetchMock.mockReset();
     dialogConstructorSpy.mockClear();
+    mockHooks.once.mockClear();
 });
 
 afterEach(() => {
@@ -149,6 +150,34 @@ describe('tick', () => {
         await mod.tick();
         await mod.tick();
         expect(dialogConstructorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears state.dialog when the closeDialogV2 hook fires for our instance', async () => {
+        fetchMock.mockResolvedValue(expiredResponse());
+        await mod.tick();
+        const dialog = mod.state.dialog;
+        expect(dialog).not.toBeNull();
+
+        const closeHookCall = mockHooks.once.mock.calls.find(
+            (call: unknown[]) => call[0] === 'closeDialogV2',
+        );
+        expect(closeHookCall).toBeDefined();
+        const callback = closeHookCall![1] as (app: unknown) => void;
+        callback(dialog);
+        expect(mod.state.dialog).toBeNull();
+    });
+
+    it('does not clear state.dialog for an unrelated DialogV2 close', async () => {
+        fetchMock.mockResolvedValue(expiredResponse());
+        await mod.tick();
+        const dialog = mod.state.dialog;
+
+        const closeHookCall = mockHooks.once.mock.calls.find(
+            (call: unknown[]) => call[0] === 'closeDialogV2',
+        );
+        const callback = closeHookCall![1] as (app: unknown) => void;
+        callback({ unrelated: true });
+        expect(mod.state.dialog).toBe(dialog);
     });
 });
 

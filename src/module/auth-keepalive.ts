@@ -136,7 +136,7 @@ function showExpiryUi(): void {
     const body = game.i18n.localize(`${MODULE_ID}.dialog.body`);
     const buttonLabel = game.i18n.localize(`${MODULE_ID}.dialog.button`);
 
-    state.dialog = new foundry.applications.api.DialogV2({
+    const dialog = new foundry.applications.api.DialogV2({
         window: { title },
         position: { width: DEFAULTS.dialogWidth },
         content: `<p>${body}</p>`,
@@ -156,7 +156,14 @@ function showExpiryUi(): void {
         // Don't reject the promise if the user dismisses without clicking.
         rejectClose: false,
     });
-    void state.dialog.render({ force: true });
+    state.dialog = dialog;
+    // Clear the reference when the dialog closes by any path — button
+    // activation, X dismissal, ESC. Without this, manual dismissal
+    // would leave a stale reference until the next recovery.
+    Hooks.once('closeDialogV2', (app: unknown) => {
+        if (app === dialog) state.dialog = null;
+    });
+    void dialog.render({ force: true });
 }
 
 function clearExpiryUi(): void {
@@ -169,7 +176,7 @@ function clearExpiryUi(): void {
         state.notification = null;
     }
 
-    state.dialog?.close?.();
+    void state.dialog?.close?.();
     state.dialog = null;
 
     if (getSetting<boolean>('showRecoveryToast', DEFAULTS.showRecoveryToast)) {
