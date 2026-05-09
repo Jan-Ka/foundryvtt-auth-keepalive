@@ -1,18 +1,39 @@
-# Block staged paths that look like AI-coding-tool workspace files.
-# These should be gitignored, but `git add -f` or a misconfigured ignore
-# can sneak them in. Hard-fail before they're committed.
+# Block staged paths that look like personal workspace files (AI
+# assistants and editor/IDE config). These should be gitignored, but
+# `git add -f` or a misconfigured ignore can sneak them in. Hard-fail
+# before they're committed.
 #
 # Bypass (with caution): `git commit --no-verify`.
 staged="$(git diff --cached --name-only --diff-filter=ACMR)"
 
-if printf '%s\n' "$staged" | grep -qiE '^(\.claude/|CLAUDE\.md$|\.cursor/|\.aider|\.continue/|\.windsurf/|\.codeium/|\.github/copilot-instructions\.md$)'; then
+ai_re='^(\.claude/|CLAUDE\.md$|\.cursor/|\.aider|\.continue/|\.windsurf/|\.codeium/|\.github/copilot-instructions\.md$)'
+editor_re='^(\.vscode/|\.idea/)'
+
+fail=0
+
+if printf '%s\n' "$staged" | grep -qiE "$ai_re"; then
     cat >&2 <<'EOF'
 error: refusing to commit AI-coding-tool workspace files.
 
 The following staged paths look like agent / IDE-assistant workspace data
 that must not land in this repo:
 EOF
-    printf '%s\n' "$staged" | grep -iE '^(\.claude/|CLAUDE\.md$|\.cursor/|\.aider|\.continue/|\.windsurf/|\.codeium/|\.github/copilot-instructions\.md$)' >&2
+    printf '%s\n' "$staged" | grep -iE "$ai_re" >&2
+    fail=1
+fi
+
+if printf '%s\n' "$staged" | grep -qiE "$editor_re"; then
+    cat >&2 <<'EOF'
+error: refusing to commit editor / IDE workspace files.
+
+The following staged paths look like personal editor config that should
+stay gitignored, not land in this repo:
+EOF
+    printf '%s\n' "$staged" | grep -iE "$editor_re" >&2
+    fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
     cat >&2 <<'EOF'
 
 Unstage them (`git restore --staged <path>`) and ensure they stay
