@@ -29,16 +29,23 @@ const DEFAULTS = {
     detectMediaErrors: true,
 } as const;
 
+// Foundry runtime globals. No first-party types ship with Foundry, and
+// the community @league-of-foundry-developers types would be a heavy
+// dependency for a tiny module — keep these as `any` and live with it.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare const Hooks: any;
 declare const game: any;
 declare const ui: any;
 declare const Dialog: any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 interface KeepaliveState {
     intervalId: number | null;
     firstProbeTimeoutId: number | null;
     expired: boolean;
     notification: unknown;
+    // Foundry Dialog instance — see note on the global declarations above.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dialog: any;
     lastFailureAt: number | null;
     mediaListener: ((event: Event) => void) | null;

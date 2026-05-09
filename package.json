@@ -1,6 +1,6 @@
 {
   "name": "foundryvtt-auth-keepalive",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "private": true,
   "description": "Foundry VTT module that keeps SSO sessions alive behind an Authentik forward-auth proxy and surfaces a clear re-auth prompt when they expire.",
