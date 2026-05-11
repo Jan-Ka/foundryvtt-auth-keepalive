@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-11
+
+### Fixed
+
+- Escape the localized re-auth dialog body when rendering DialogV2
+  `content`, so translator-supplied HTML can no longer inject markup.
+- Re-render the dialog on a later failing tick if the user dismissed
+  it manually (X / ESC) while the session is still expired. The
+  permanent error notification is still created only once.
+
+### Changed
+
+- `module.json` compatibility no longer pins `maximum: "14"`; the
+  module is open-ended forward compatible with v14+.
+- `getSetting` logs once when a settings read fails persistently
+  instead of swallowing the error silently.
+
 ## [0.3.0] - 2026-05-09
 
 Foundry VTT v14 release. Drops support for v12 and v13.

@@ -2,7 +2,7 @@
   "id": "foundryvtt-auth-keepalive",
   "title": "Auth Keepalive",
   "description": "Keeps Foundry VTT sessions alive behind an SSO reverse proxy (Authentik forward-auth via Traefik) and surfaces a clear re-auth prompt when they expire.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "compatibility": {
     "minimum": "14",
     "verified": "14"
