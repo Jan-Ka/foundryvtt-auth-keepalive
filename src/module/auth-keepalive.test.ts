@@ -73,12 +73,12 @@ globalThis.fetch = fetchMock as unknown as typeof fetch;
 // Dynamic import — must happen AFTER globals are wired up. Top-level
 // `await import(...)` would also work but pulling it inside beforeAll
 // keeps the dependency on globals explicit.
-import type * as AuthKeepalive from './auth-keepalive.js';
+import type * as AuthKeepalive from './auth-keepalive.ts';
 
 let mod: typeof AuthKeepalive;
 
 beforeEach(async () => {
-    if (!mod) mod = await import('./auth-keepalive.js');
+    if (!mod) mod = await import('./auth-keepalive.ts');
     mod.__resetStateForTests();
     mockUi.notifications.error.mockClear();
     mockUi.notifications.info.mockClear();
@@ -117,6 +117,23 @@ describe('tick', () => {
         expect(dialogConstructorSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('escapes HTML in the localized dialog body', async () => {
+        const originalLocalize = mockGame.i18n.localize;
+        mockGame.i18n.localize = (key: string): string =>
+            key === 'foundryvtt-auth-keepalive.dialog.body'
+                ? '<script>alert(1)</script>'
+                : key;
+        try {
+            fetchMock.mockResolvedValue(expiredResponse());
+            await mod.tick();
+            const config = dialogConstructorSpy.mock.calls[0]![0] as { content: string };
+            expect(config.content).not.toContain('<script>');
+            expect(config.content).toContain('&lt;script&gt;');
+        } finally {
+            mockGame.i18n.localize = originalLocalize;
+        }
+    });
+
     it('treats a thrown fetch as an expired session', async () => {
         fetchMock.mockRejectedValue(new TypeError('network'));
         await mod.tick();
@@ -128,10 +145,13 @@ describe('tick', () => {
         fetchMock.mockResolvedValueOnce(expiredResponse());
         await mod.tick();
         expect(mod.state.expired).toBe(true);
+        const dialog = mod.state.dialog as MockDialog;
 
         fetchMock.mockResolvedValueOnce(okResponse());
         await mod.tick();
         expect(mod.state.expired).toBe(false);
+        expect(mod.state.dialog).toBeNull();
+        expect(dialog.closed).toBe(true);
         expect(mockUi.notifications.remove).toHaveBeenCalledTimes(1);
         expect(mockUi.notifications.info).toHaveBeenCalledTimes(1);
     });
@@ -165,6 +185,30 @@ describe('tick', () => {
         const callback = closeHookCall![1] as (app: unknown) => void;
         callback(dialog);
         expect(mod.state.dialog).toBeNull();
+    });
+
+    it('re-renders the dialog if the user dismissed it and a later tick still fails', async () => {
+        fetchMock.mockResolvedValue(expiredResponse());
+        await mod.tick();
+        expect(dialogConstructorSpy).toHaveBeenCalledTimes(1);
+
+        // Simulate the user closing the dialog manually (X / ESC).
+        const closeHookCall = mockHooks.once.mock.calls.find(
+            (call: unknown[]) => call[0] === 'closeDialogV2',
+        );
+        const callback = closeHookCall![1] as (app: unknown) => void;
+        callback(mod.state.dialog);
+        expect(mod.state.dialog).toBeNull();
+
+        // Next failing tick should re-open the dialog. The error
+        // banner is the persistent indicator only while it's still
+        // visible — re-rendering the dialog covers users who
+        // dismissed both.
+        await mod.tick();
+        expect(dialogConstructorSpy).toHaveBeenCalledTimes(2);
+        // The permanent error notification was created exactly once;
+        // we don't stack banners on re-render.
+        expect(mockUi.notifications.error).toHaveBeenCalledTimes(1);
     });
 
     it('does not clear state.dialog for an unrelated DialogV2 close', async () => {
