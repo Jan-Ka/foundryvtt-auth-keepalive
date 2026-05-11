@@ -47,7 +47,6 @@ interface KeepaliveState {
     // Foundry Dialog instance — see note on the global declarations above.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dialog: any;
-    lastFailureAt: number | null;
     mediaListener: ((event: Event) => void) | null;
     inflight: Promise<void> | null;
 }
@@ -58,10 +57,11 @@ const state: KeepaliveState = {
     expired: false,
     notification: null,
     dialog: null,
-    lastFailureAt: null,
     mediaListener: null,
     inflight: null,
 };
+
+let warnedSettingsRead = false;
 
 function log(...args: unknown[]): void {
     console.log(`[${MODULE_ID}]`, ...args);
@@ -75,7 +75,15 @@ function getSetting<T>(key: string, fallback: T): T {
     try {
         const value = game?.settings?.get?.(MODULE_ID, key);
         return (value === undefined || value === null) ? fallback : (value as T);
-    } catch {
+    } catch (err) {
+        // Reads can throw before `init` finishes registering settings.
+        // That's expected during early bootstrap, but a persistent
+        // failure points at a misconfigured Foundry — log once so it
+        // shows up in support reports without spamming the console.
+        if (!warnedSettingsRead) {
+            warnedSettingsRead = true;
+            log('settings read failed, falling back to defaults', err);
+        }
         return fallback;
     }
 }
@@ -123,23 +131,33 @@ async function ping(): Promise<boolean> {
 }
 
 function showExpiryUi(): void {
-    state.lastFailureAt = Date.now();
-    if (state.expired) return;
-    state.expired = true;
-    log('session expired for', userTag());
+    // If the dialog is still rendered, nothing to do. If it was
+    // dismissed manually (X/ESC), fall through and re-render — the
+    // user just gets the banner otherwise, which is easy to miss.
+    if (state.expired && state.dialog) return;
 
-    const message = game.i18n.localize(`${MODULE_ID}.notification.expired`);
-    state.notification = ui.notifications.error(message, { permanent: true });
+    if (!state.expired) {
+        state.expired = true;
+        log('session expired for', userTag());
+        const message = game.i18n.localize(`${MODULE_ID}.notification.expired`);
+        state.notification = ui.notifications.error(message, { permanent: true });
+    }
 
     const url = reauthUrl();
     const title = game.i18n.localize(`${MODULE_ID}.dialog.title`);
     const body = game.i18n.localize(`${MODULE_ID}.dialog.body`);
     const buttonLabel = game.i18n.localize(`${MODULE_ID}.dialog.button`);
 
+    // DialogV2 renders `content` as HTML. The body string is plain
+    // prose (no markup), so build the <p> via the DOM and serialize —
+    // outerHTML escapes entities for us. Avoids putting translator
+    // strings into a template literal that would interpret tags.
+    const bodyEl = document.createElement('p');
+    bodyEl.textContent = body;
     const dialog = new foundry.applications.api.DialogV2({
         window: { title },
         position: { width: DEFAULTS.dialogWidth },
-        content: `<p>${body}</p>`,
+        content: bodyEl.outerHTML,
         // DialogV2 closes the dialog after a button activation. The
         // permanent error notification remains as the persistent
         // indicator until clearExpiryUi() removes it on recovery.
@@ -171,13 +189,17 @@ function clearExpiryUi(): void {
     state.expired = false;
     log('session recovered for', userTag());
 
-    if (state.notification !== null) {
+    if (state.notification != null) {
         ui.notifications?.remove?.(state.notification);
         state.notification = null;
     }
 
-    void state.dialog?.close?.();
+    // Null state.dialog before closing so the closeDialogV2 hook's
+    // `app === dialog` re-assignment is a no-op rather than a redundant
+    // write to a field we just cleared.
+    const dialog = state.dialog;
     state.dialog = null;
+    void dialog?.close?.();
 
     if (getSetting<boolean>('showRecoveryToast', DEFAULTS.showRecoveryToast)) {
         ui.notifications?.info?.(game.i18n.localize(`${MODULE_ID}.notification.recovered`));
@@ -255,6 +277,9 @@ function detachMediaErrorListener(): void {
 }
 
 Hooks.once('init', () => {
+    // Only `interval` needs an explicit onChange — pingPath, reauthUrl,
+    // and firstProbeDelay are read fresh on each tick (or only matter
+    // before start), so live edits propagate without a restart.
     const onSettingChange = () => {
         if (state.intervalId !== null) restart();
     };
@@ -355,7 +380,9 @@ export function __resetStateForTests(): void {
     state.expired = false;
     state.notification = null;
     state.dialog = null;
-    state.lastFailureAt = null;
-    state.mediaListener = null;
+    if (state.mediaListener) {
+        window.removeEventListener('error', state.mediaListener, true);
+        state.mediaListener = null;
+    }
     state.inflight = null;
 }
