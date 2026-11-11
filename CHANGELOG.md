@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated all dev dependencies and GitHub Actions to their newest
   releases published on or before 2026-10-28 (two-week supply-chain
   cooldown), including vitest 5, commitlint 21, lint-staged 17 and
-  happy-dom 21. `pnpm audit` drops from 93 findings to 2 moderate ones
-  inside `@cyclonedx/cdxgen`.
+  happy-dom 21. `pnpm audit` drops from 93 findings to none; three
+  transitive packages (`body-parser`, `glob`, `minimatch`) are
+  overridden to patched versions until their parents catch up.
 - CI and releases now build on Node 26 LTS (`.nvmrc` 26.13.0); pnpm is
   pinned to 10.34.9.
 - Added optional Claude Code tooling tasks (`task setup:mcp`,
