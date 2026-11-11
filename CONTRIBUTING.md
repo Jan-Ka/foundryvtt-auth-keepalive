@@ -12,8 +12,9 @@ are welcome.
 ## Development setup
 
 You need Node.js ≥ 24 and pnpm 10 (the version is pinned via
-`packageManager` in `package.json` — corepack will pick it up
-automatically).
+`packageManager` in `package.json`; pnpm 10 switches itself to that
+version. Node 25+ no longer bundles Corepack, so install pnpm
+separately). CI runs the Node version in `.nvmrc`.
 
 ```bash
 pnpm install         # installs deps and wires up git hooks via husky

@@ -26,27 +26,32 @@
   "bugs": {
     "url": "https://github.com/Jan-Ka/foundryvtt-auth-keepalive/issues"
   },
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@10.34.9",
   "engines": {
     "node": ">=24.15.0"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.5.3",
-    "@commitlint/config-conventional": "^20.5.3",
-    "@cyclonedx/cdxgen": "^12.3.3",
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@cyclonedx/cdxgen": "^12.9.0",
     "@eslint/js": "^10.0.1",
-    "esbuild": "^0.28.0",
-    "eslint": "^10.3.0",
-    "happy-dom": "^20.9.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.13.0",
+    "happy-dom": "^21.0.4",
     "husky": "^9.1.7",
-    "lint-staged": "^16.4.0",
+    "lint-staged": "^17.6.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.1",
-    "vitest": "^4.1.5"
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
   },
   "lint-staged": {
     "src/**/*.ts": [
       "eslint --fix"
     ]
+  },
+  "pnpm": {
+    "overrides": {
+      "body-parser@<2.4.0": "2.4.0"
+    }
   }
 }
