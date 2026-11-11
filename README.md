@@ -109,6 +109,10 @@ task check     # lint + typecheck + build (mirrors CI)
 task package   # produce build/artifacts/foundryvtt-auth-keepalive.zip
 ```
 
+`task setup` also wires optional Claude Code tooling (the github and context7
+MCP servers, per-clone agent settings). Those steps skip themselves unless you
+provide tokens; see `.env.mcp.example`.
+
 Tag a release as `vX.Y.Z` to trigger the GitHub Actions release workflow,
 which packages the zip, generates a CycloneDX SBOM, signs everything with
 cosign keyless, and publishes a GitHub Release.

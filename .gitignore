@@ -23,9 +23,15 @@ Thumbs.db
 # Foundry locks
 *.lock
 
-# Secrets
+# Secrets. Env files are per-clone, including .env.1password: its references
+# name vault items and their paths. `task setup:secrets` writes .env.mcp (the
+# MCP tokens) from it. Only the .example contract is tracked.
 .env
-.env.1password
+.env.*
+!.env.mcp.example
+
+# Claude Code MCP servers are registered per user by `task setup:mcp`, not here.
+.mcp.json
 
 # ESLint config (generated)
 .eslintrc

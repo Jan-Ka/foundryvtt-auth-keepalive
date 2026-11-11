@@ -23,8 +23,17 @@ tasks:
             MISSING=1
           fi
         }
+        check_optional() {
+          if command -v "$1" >/dev/null 2>&1; then
+            echo "✓ $1 $(eval "$2")"
+          else
+            echo "ℹ $1 is not installed ($3) — $4"
+          fi
+        }
         check node "node --version" "brew install node"
         check pnpm "pnpm --version" "brew install pnpm"
+        check_optional op     "op --version"     "brew install 1password-cli"                    "only task setup:secrets needs it"
+        check_optional claude "claude --version" "curl -fsSL https://claude.ai/install.sh | bash" "only task setup:mcp needs it"
         [ "$MISSING" -ne 0 ] && echo "" && echo "Install missing tools and re-run." && exit 1
         echo "" && echo "All prerequisites satisfied."
 
@@ -34,6 +43,47 @@ tasks:
       - task: check:prereqs
       - pnpm install
       - task: build
+      # Optional agent tooling. Each step skips itself when its inputs (the
+      # MCP tokens, the claude CLI) are absent, so a plain clone still sets up.
+      - task: setup:secrets
+      - task: setup:mcp
+      - task: setup:claude
+
+  # ── Agent tooling (optional) ─────────────────────────────────────
+  #
+  # The scripts run under the system /bin/sh rather than Task's embedded
+  # shell, which lacks grep/chmod/cmp and handles loop exit codes differently.
+
+  setup:secrets:
+    desc: Write the MCP tokens to .env.mcp from .env.1password (skipped when neither exists)
+    silent: true
+    cmds:
+      - sh "{{.ROOT_DIR}}/scripts/setup-secrets.sh"
+
+  setup:mcp:
+    desc: Register the github + context7 MCP servers for this project (token-free; headers come from task mcp:headers)
+    silent: true
+    cmds:
+      - sh "{{.ROOT_DIR}}/scripts/setup-mcp.sh"
+
+  mcp:headers:
+    desc: Print the HTTP headers for one MCP server as JSON (Claude Code headers helper)
+    silent: true
+    # Loads .env.mcp into this task's environment only. Task ignores a missing
+    # file and the script reports it. Claude Code sets
+    # CLAUDE_CODE_MCP_SERVER_NAME; for a manual check pass the name after --.
+    # `silent` matters: stdout must be the JSON alone.
+    dotenv: [".env.mcp"]
+    env:
+      MCP_SERVER: "{{.CLI_ARGS}}"
+    cmds:
+      - sh "{{.ROOT_DIR}}/scripts/mcp-headers.sh"
+
+  setup:claude:
+    desc: Write the per-clone .claude/settings.json (attribution suppression + secret denials)
+    silent: true
+    cmds:
+      - sh "{{.ROOT_DIR}}/scripts/setup-claude.sh"
 
   build:
     desc: Bundle the ES module entry script
